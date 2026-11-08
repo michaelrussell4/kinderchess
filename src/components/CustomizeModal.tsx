@@ -75,11 +75,6 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
     onUpdateSettings({ ...settings, voiceMode: mode });
   };
 
-  const handleToggleBadges = () => {
-    sounds.playTap();
-    onUpdateSettings({ ...settings, showPieceBadges: !settings.showPieceBadges });
-  };
-
   return (
     <dialog
       ref={dialogRef}
@@ -242,29 +237,6 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   <p className="text-xs text-slate-500 mt-0.5">{style.desc}</p>
                 </button>
               ))}
-            </div>
-
-            {/* Toggle Piece Name Badges for Kids */}
-            <div className="bg-white p-3 rounded-2xl border border-amber-200 flex items-center justify-between">
-              <div>
-                <p className="font-bubble font-bold text-sm text-slate-800">
-                  Show Piece Letters (K, Q, B, Kn, R, P)
-                </p>
-                <p className="text-xs text-slate-500">
-                  Adds a helpful mini badge on each piece so beginners never confuse King/Queen or Bishop/Pawn!
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleToggleBadges}
-                className={`px-3 py-1.5 rounded-xl font-bubble text-xs font-bold border transition-all ${
-                  settings.showPieceBadges
-                    ? 'bg-amber-400 text-amber-950 border-amber-500'
-                    : 'bg-slate-100 text-slate-500 border-slate-300'
-                }`}
-              >
-                {settings.showPieceBadges ? 'ON' : 'OFF'}
-              </button>
             </div>
           </div>
 

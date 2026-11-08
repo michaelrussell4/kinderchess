@@ -74,7 +74,6 @@ export interface PlayerProfile {
 export interface GameSettings {
   boardTheme: BoardThemeId;
   pieceStyle: PieceStyleId;
-  showPieceBadges: boolean;
   soundEnabled: boolean;
   voiceMode: VoiceMode;
   showHints: boolean;

@@ -10,6 +10,7 @@ import {
   LearningChallenge,
   MoveRecord,
   VoiceMode,
+  Color,
 } from './types/chess';
 import { BOTS, chooseBotMove, getBotPhrase } from './services/botEngine';
 import { generateChallenge } from './services/learning';
@@ -23,6 +24,8 @@ import { LearningModal } from './components/LearningModal';
 import { CustomizeModal } from './components/CustomizeModal';
 import { GameOverModal } from './components/GameOverModal';
 import { RulesModal } from './components/RulesModal';
+import { PromotionModal } from './components/PromotionModal';
+import { StickerModal } from './components/StickerModal';
 
 import {
   Sparkles,
@@ -38,12 +41,12 @@ import {
   Award,
   ChevronLeft,
   Music,
+  Smile,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
   // Game instance
   const [chess] = useState<Chess>(() => new Chess());
-  // Force update trigger for chess state changes
   const [, setFenTick] = useState(0);
 
   // App Navigation View
@@ -55,11 +58,9 @@ export const App: React.FC = () => {
   const activeBot: BotPersona = useMemo(() => BOTS[selectedBotId], [selectedBotId]);
 
   // Player Profiles
-  const [player1, setPlayer1] = useState<PlayerProfile>({
-    name: 'Super Kid',
-    avatar: '🦁',
-    stars: 5,
-    color: 'w',
+  const [player1, setPlayer1] = useState<PlayerProfile>(() => {
+    const saved = localStorage.getItem('kinderchess_p1');
+    return saved ? JSON.parse(saved) : { name: 'Super Kid', avatar: '🦁', stars: 5, color: 'w' };
   });
 
   const [player2, setPlayer2] = useState<PlayerProfile>({
@@ -69,13 +70,35 @@ export const App: React.FC = () => {
     color: 'b',
   });
 
+  // Stickers / Achievements State
+  const [stickers, setStickers] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('kinderchess_stickers');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const unlockSticker = useCallback((id: string) => {
+    setStickers((prev) => {
+      if (prev[id]) return prev;
+      const next = { ...prev, [id]: true };
+      localStorage.setItem('kinderchess_stickers', JSON.stringify(next));
+      sounds.playCorrect();
+      return next;
+    });
+  }, []);
+
+  // Save Player 1 profile to local storage on change
+  useEffect(() => {
+    localStorage.setItem('kinderchess_p1', JSON.stringify(player1));
+    if (player1.stars >= 10) unlockSticker('star_10');
+    if (player1.stars >= 25) unlockSticker('star_25');
+  }, [player1, unlockSticker]);
+
   // Settings
   const [settings, setSettings] = useState<GameSettings>({
     boardTheme: 'candy',
     pieceStyle: 'cartoon',
-    showPieceBadges: true, // Enabled by default for crystal clear piece recognition!
     soundEnabled: true,
-    voiceMode: 'natural', // 'natural' | 'chimes' | 'off'
+    voiceMode: 'natural',
     showHints: true,
     showLegalMoves: true,
     learningCategory: 'mixed',
@@ -106,9 +129,14 @@ export const App: React.FC = () => {
     promotion?: string;
   } | null>(null);
 
-  // Modals
+  // Promotion Modal State
+  const [isPromotionOpen, setIsPromotionOpen] = useState(false);
+  const [promotionSquare, setPromotionSquare] = useState<{ from: string; to: string } | null>(null);
+
+  // Other Modals
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
+  const [isStickersOpen, setIsStickersOpen] = useState(false);
 
   // Game Over
   const [isGameOver, setIsGameOver] = useState(false);
@@ -141,7 +169,6 @@ export const App: React.FC = () => {
       setIsGameOver(true);
       setGameOverReason('checkmate');
       const isWhiteTurn = chess.turn() === 'w';
-      // If it's white's turn and checkmate, black won!
       const winner = isWhiteTurn
         ? gameMode === 'bot'
           ? activeBot.name
@@ -153,6 +180,7 @@ export const App: React.FC = () => {
         setPlayer1((prev) => ({ ...prev, stars: prev.stars + 3 }));
         setMatchStarsEarned((prev) => prev + 3);
         if (gameMode === 'bot') {
+          unlockSticker('bot_win');
           const phrase = getBotPhrase(activeBot, 'lose');
           setBotSpeech(phrase);
           sounds.botSpeak(activeBot.id, phrase);
@@ -174,7 +202,7 @@ export const App: React.FC = () => {
       return true;
     }
     return false;
-  }, [chess, gameMode, activeBot, player1.name, player2.name]);
+  }, [chess, gameMode, activeBot, player1.name, player2.name, unlockSticker]);
 
   // Execute a chess move on the board
   const executeMove = useCallback(
@@ -187,6 +215,8 @@ export const App: React.FC = () => {
         });
 
         if (!moveRes) return false;
+
+        unlockSticker('first_move');
 
         setLastMove({ from, to });
         setHintSquare(null);
@@ -237,7 +267,7 @@ export const App: React.FC = () => {
         return false;
       }
     },
-    [chess, checkGameOver, gameMode, activeBot]
+    [chess, checkGameOver, gameMode, activeBot, unlockSticker]
   );
 
   // Trigger Bot Move
@@ -251,7 +281,6 @@ export const App: React.FC = () => {
       if (bestMove) {
         executeMove(bestMove.from, bestMove.to, bestMove.promotion || 'q');
 
-        // Bot reaction
         let context: 'move' | 'capture' | 'checked' = 'move';
         if (bestMove.captured) context = 'capture';
         if (chess.isCheck()) context = 'checked';
@@ -272,19 +301,28 @@ export const App: React.FC = () => {
 
     const currentTurn = chess.turn();
 
-    // If it's the bot's turn in bot mode, ignore user clicks
     if (gameMode === 'bot' && currentTurn === 'b') return;
 
-    // If clicking on an already selected square, deselect
     if (selectedSquare === square) {
       setSelectedSquare(null);
       setValidMoves([]);
       return;
     }
 
-    // If a piece was selected and clicking on a valid destination
     if (selectedSquare && validMoves.includes(square)) {
       const isCapture = !!chess.get(square as ChessSquare);
+      const piece = chess.get(selectedSquare as ChessSquare);
+
+      // Check for pawn promotion
+      const isPromotion =
+        piece?.type === 'p' &&
+        ((piece.color === 'w' && square[1] === '8') || (piece.color === 'b' && square[1] === '1'));
+
+      if (isPromotion) {
+        setPromotionSquare({ from: selectedSquare, to: square });
+        setIsPromotionOpen(true);
+        return;
+      }
 
       // Check if learning challenge should be prompted
       let shouldChallenge = false;
@@ -300,7 +338,6 @@ export const App: React.FC = () => {
       }
 
       if (shouldChallenge) {
-        // Prepare challenge
         const challenge = generateChallenge(
           settings.learningCategory,
           settings.learningDifficulty
@@ -311,7 +348,6 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Execute move without challenge
       const gameContinues = executeMove(selectedSquare, square, 'q');
       if (gameContinues && gameMode === 'bot' && chess.turn() === 'b') {
         makeBotTurn();
@@ -319,7 +355,6 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Otherwise, check if user clicked on their own piece
     const piece = chess.get(square as ChessSquare);
     if (piece && piece.color === currentTurn) {
       setSelectedSquare(square);
@@ -331,20 +366,52 @@ export const App: React.FC = () => {
     }
   };
 
+  // When player chooses piece in Pawn Promotion
+  const handlePromotionSelect = (promotedPiece: PieceType) => {
+    setIsPromotionOpen(false);
+    if (!promotionSquare) return;
+
+    // Check challenge
+    let shouldChallenge = false;
+    if (settings.challengeFrequency === 'every_move' || settings.challengeFrequency === 'captures_only') {
+      shouldChallenge = true;
+    }
+
+    if (shouldChallenge) {
+      const challenge = generateChallenge(
+        settings.learningCategory,
+        settings.learningDifficulty
+      );
+      setPendingMove({ from: promotionSquare.from, to: promotionSquare.to, promotion: promotedPiece });
+      setCurrentChallenge(challenge);
+      setIsLearningModalOpen(true);
+      setPromotionSquare(null);
+      return;
+    }
+
+    const gameContinues = executeMove(promotionSquare.from, promotionSquare.to, promotedPiece);
+    setPromotionSquare(null);
+    if (gameContinues && gameMode === 'bot' && chess.turn() === 'b') {
+      makeBotTurn();
+    }
+  };
+
   // When player successfully solves challenge
   const handleChallengeSuccess = () => {
     setIsLearningModalOpen(false);
     if (!pendingMove) return;
 
-    // Award player stars!
     setPlayer1((prev) => ({ ...prev, stars: prev.stars + 1 }));
     setMatchStarsEarned((prev) => prev + 1);
+
+    if (currentChallenge?.category === 'math') unlockSticker('math_5');
+    if (currentChallenge?.category === 'reading') unlockSticker('words_5');
+    if (currentChallenge?.category === 'chess') unlockSticker('chess_5');
 
     const gameContinues = executeMove(pendingMove.from, pendingMove.to, pendingMove.promotion || 'q');
     setPendingMove(null);
     setCurrentChallenge(null);
 
-    // If bot mode, let bot make its move
     if (gameContinues && gameMode === 'bot' && chess.turn() === 'b') {
       makeBotTurn();
     }
@@ -358,10 +425,9 @@ export const App: React.FC = () => {
     setValidMoves([]);
   };
 
-  // Undo Move (very friendly for kids!)
+  // Undo Move
   const handleUndoMove = () => {
     if (isBotThinking || isGameOver) return;
-
     sounds.playTap();
 
     if (gameMode === 'bot') {
@@ -442,6 +508,12 @@ export const App: React.FC = () => {
     if (botId) {
       setSelectedBotId(botId);
       const b = BOTS[botId];
+      if (botId === 'pip') unlockSticker('pip_friend');
+      if (botId === 'gizmo') unlockSticker('gizmo_pal');
+      if (botId === 'sparkle') unlockSticker('sparkle_fan');
+      if (botId === 'barnaby') unlockSticker('barnaby_student');
+      if (botId === 'barnacle') unlockSticker('pirate_crew');
+
       const startPhrase = getBotPhrase(b, 'start');
       setBotSpeech(startPhrase);
       sounds.botSpeak(b.id, startPhrase);
@@ -490,7 +562,21 @@ export const App: React.FC = () => {
               <span>{player1.stars} Stars</span>
             </div>
 
-            {/* Quick Voice Mode Switcher (Natural -> Chimes -> Off) */}
+            {/* Stickers Book Button */}
+            <button
+              type="button"
+              onClick={() => {
+                sounds.playTap();
+                setIsStickersOpen(true);
+              }}
+              className="p-2 sm:px-3 sm:py-1.5 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm"
+              title="My Sticker Book"
+            >
+              <Smile className="w-4 h-4 text-yellow-300" />
+              <span className="hidden md:inline">Stickers</span>
+            </button>
+
+            {/* Quick Voice Mode Switcher */}
             <button
               type="button"
               onClick={handleCycleVoiceMode}
@@ -553,7 +639,6 @@ export const App: React.FC = () => {
         {/* VIEW 1: Main Menu */}
         {view === 'menu' && (
           <div className="flex flex-col items-center justify-center py-6 sm:py-12 text-center animate-pop max-w-xl mx-auto w-full">
-            {/* Hero Badge */}
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-400/90 text-amber-950 font-bubble font-bold text-sm mb-4 shadow-lg border-2 border-white animate-bounce-short">
               <Sparkles className="w-4 h-4 text-amber-900" />
               <span>Learn Math, Words & Chess Fun!</span>
@@ -566,7 +651,6 @@ export const App: React.FC = () => {
               Solve fun challenges, challenge playful computer buddies or friends, and become a Chess Superstar!
             </p>
 
-            {/* Primary Action Buttons */}
             <div className="flex flex-col gap-4 w-full px-4">
               <button
                 type="button"
@@ -589,17 +673,29 @@ export const App: React.FC = () => {
                 <span>Two-Player Pass & Play 👥</span>
               </button>
 
-              <div className="grid grid-cols-2 gap-3 mt-2">
+              <div className="grid grid-cols-3 gap-2 mt-2">
                 <button
                   type="button"
                   onClick={() => {
                     sounds.playTap();
                     setIsRulesOpen(true);
                   }}
-                  className="py-3 px-4 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble font-bold text-base flex items-center justify-center gap-2 border border-white/30 transition-all active:scale-95"
+                  className="py-3 px-2 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble font-bold text-sm flex items-center justify-center gap-1.5 border border-white/30 transition-all active:scale-95"
                 >
-                  <BookOpen className="w-5 h-5 text-amber-300" />
-                  <span>How to Play</span>
+                  <BookOpen className="w-4 h-4 text-amber-300" />
+                  <span>Rules</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playTap();
+                    setIsStickersOpen(true);
+                  }}
+                  className="py-3 px-2 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble font-bold text-sm flex items-center justify-center gap-1.5 border border-white/30 transition-all active:scale-95"
+                >
+                  <Smile className="w-4 h-4 text-yellow-300" />
+                  <span>Stickers</span>
                 </button>
 
                 <button
@@ -608,10 +704,10 @@ export const App: React.FC = () => {
                     sounds.playTap();
                     setIsCustomizeOpen(true);
                   }}
-                  className="py-3 px-4 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble font-bold text-base flex items-center justify-center gap-2 border border-white/30 transition-all active:scale-95"
+                  className="py-3 px-2 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble font-bold text-sm flex items-center justify-center gap-1.5 border border-white/30 transition-all active:scale-95"
                 >
-                  <Settings className="w-5 h-5 text-amber-300" />
-                  <span>Customize App</span>
+                  <Settings className="w-4 h-4 text-amber-300" />
+                  <span>Settings</span>
                 </button>
               </div>
             </div>
@@ -630,7 +726,6 @@ export const App: React.FC = () => {
               </p>
             </div>
 
-            {/* Persona Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
               {Object.values(BOTS).map((bot) => {
                 const isSelected = selectedBotId === bot.id;
@@ -676,7 +771,6 @@ export const App: React.FC = () => {
               })}
             </div>
 
-            {/* Launch Button */}
             <div className="flex items-center justify-between gap-4 px-2">
               <button
                 type="button"
@@ -701,9 +795,9 @@ export const App: React.FC = () => {
         {/* VIEW 3: Active Chess Match Screen */}
         {view === 'game' && (
           <div className="flex flex-col lg:flex-row items-center lg:items-start justify-center gap-4 sm:gap-6 w-full">
-            {/* Left Column: Board + Top/Bottom Player Panels */}
+            {/* Left Column: Board + Player Panels */}
             <div className="flex flex-col gap-3 w-full max-w-[540px]">
-              {/* Opponent Profile (Bot or Player 2) */}
+              {/* Opponent Profile */}
               {gameMode === 'bot' ? (
                 <BotProfile
                   bot={activeBot}
@@ -720,12 +814,11 @@ export const App: React.FC = () => {
                 />
               )}
 
-              {/* The Chess Board */}
+              {/* The Chess Board (Clean Artwork - No Letter Badges!) */}
               <Board
                 chess={chess}
                 theme={activeTheme}
                 pieceStyle={settings.pieceStyle}
-                showPieceBadges={settings.showPieceBadges}
                 selectedSquare={selectedSquare}
                 validMoves={validMoves}
                 lastMove={lastMove}
@@ -735,7 +828,7 @@ export const App: React.FC = () => {
                 disabled={isGameOver || isBotThinking}
               />
 
-              {/* Player 1 Profile (White) */}
+              {/* Player 1 Profile */}
               <PlayerPanel
                 player={player1}
                 isCurrentTurn={chess.turn() === 'w'}
@@ -745,11 +838,10 @@ export const App: React.FC = () => {
               />
             </div>
 
-            {/* Right Column: Controls, Tools, Move History & Learning Progress */}
+            {/* Right Column: Controls, Tools & Progress */}
             <div className="flex flex-col gap-3 w-full max-w-[540px] lg:max-w-xs">
-              {/* Kids Helper Tool Ribbon */}
+              {/* Helper Tools */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-white/90 backdrop-blur-md p-3 rounded-3xl border-2 border-amber-300 shadow-xl">
-                {/* Undo Button */}
                 <button
                   type="button"
                   onClick={handleUndoMove}
@@ -761,7 +853,6 @@ export const App: React.FC = () => {
                   <span>Undo</span>
                 </button>
 
-                {/* Hint Button */}
                 <button
                   type="button"
                   onClick={handleShowHint}
@@ -773,7 +864,6 @@ export const App: React.FC = () => {
                   <span>Hint</span>
                 </button>
 
-                {/* Sound Toggle */}
                 <button
                   type="button"
                   onClick={() => {
@@ -793,7 +883,7 @@ export const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* Learning Subject Card */}
+              {/* Learning Card */}
               <div className="bg-white/90 backdrop-blur-md p-4 rounded-3xl border-2 border-emerald-300 shadow-xl">
                 <div className="flex items-center justify-between mb-2">
                   <span className="flex items-center gap-1.5 font-bubble font-black text-emerald-800 text-sm">
@@ -827,7 +917,7 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Move History / Notation Box */}
+              {/* Move History */}
               <div className="bg-white/80 backdrop-blur-md p-3.5 rounded-3xl border-2 border-white/60 shadow-xl flex-1 max-h-48 overflow-y-auto">
                 <h4 className="font-bubble font-bold text-slate-700 text-xs uppercase tracking-wider mb-2">
                   Move History ({moveHistory.length})
@@ -865,7 +955,23 @@ export const App: React.FC = () => {
         onCancel={handleChallengeCancel}
       />
 
-      {/* 2. Customization & Settings Modal */}
+      {/* 2. Pawn Promotion Modal */}
+      <PromotionModal
+        isOpen={isPromotionOpen}
+        color={chess.turn()}
+        pieceStyle={settings.pieceStyle}
+        onSelect={handlePromotionSelect}
+      />
+
+      {/* 3. Sticker Book Modal */}
+      <StickerModal
+        isOpen={isStickersOpen}
+        onClose={() => setIsStickersOpen(false)}
+        stickers={stickers}
+        totalStars={player1.stars}
+      />
+
+      {/* 4. Customization & Settings Modal */}
       <CustomizeModal
         isOpen={isCustomizeOpen}
         onClose={() => setIsCustomizeOpen(false)}
@@ -878,7 +984,7 @@ export const App: React.FC = () => {
         isPvpMode={gameMode === 'pvp'}
       />
 
-      {/* 3. Game Over Celebration Modal */}
+      {/* 5. Game Over Celebration Modal */}
       <GameOverModal
         isOpen={isGameOver}
         winner={winnerName}
@@ -888,7 +994,7 @@ export const App: React.FC = () => {
         onGoHome={() => setView('menu')}
       />
 
-      {/* 4. Chess Rules Guide Modal */}
+      {/* 6. Chess Rules Guide Modal */}
       <RulesModal
         isOpen={isRulesOpen}
         onClose={() => setIsRulesOpen(false)}

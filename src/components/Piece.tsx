@@ -5,7 +5,6 @@ interface PieceProps {
   type: PieceType;
   color: Color;
   styleId: PieceStyleId;
-  showBadge?: boolean;
   className?: string;
   isDragging?: boolean;
 }
@@ -14,7 +13,6 @@ export const Piece: React.FC<PieceProps> = ({
   type,
   color,
   styleId,
-  showBadge = false,
   className = '',
   isDragging = false,
 }) => {
@@ -41,11 +39,6 @@ export const Piece: React.FC<PieceProps> = ({
         <span className="text-3xl sm:text-4xl md:text-5xl filter drop-shadow-md pointer-events-none">
           {item.emoji}
         </span>
-        {showBadge && (
-          <span className="text-[9px] font-bold font-bubble px-1 rounded bg-black/60 text-white leading-tight">
-            {type.toUpperCase()}
-          </span>
-        )}
       </div>
     );
   }
@@ -496,19 +489,6 @@ export const Piece: React.FC<PieceProps> = ({
           </g>
         )}
       </svg>
-
-      {/* Optional Corner Letter Badge: 'P', 'N', 'B', 'R', 'Q', 'K' for 100% clarity */}
-      {showBadge && (
-        <span
-          className={`absolute bottom-0 right-0 text-[10px] sm:text-xs font-black font-bubble px-1.5 py-0.2 rounded-md shadow-md border ${
-            isWhite
-              ? 'bg-amber-100 text-amber-950 border-amber-400'
-              : 'bg-slate-900 text-cyan-300 border-slate-700'
-          }`}
-        >
-          {type === 'n' ? 'Kn' : type.toUpperCase()}
-        </span>
-      )}
     </div>
   );
 };
