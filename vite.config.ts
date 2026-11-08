@@ -6,3 +6,4 @@ export default defineConfig({
   plugins: [react()],
   base: './', // Relative base path ensures GitHub Pages deployment works without route issues
 });
+

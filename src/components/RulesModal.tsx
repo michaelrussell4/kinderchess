@@ -100,7 +100,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, pieceSt
               className="flex items-start gap-4 p-3.5 bg-white rounded-2xl border border-amber-200 shadow-sm"
             >
               <div className="w-12 h-12 flex-shrink-0 bg-amber-50 rounded-xl border border-amber-300 p-1 flex items-center justify-center">
-                <Piece type={rule.type} color="w" styleId={pieceStyle} />
+                <Piece type={rule.type} color="w" styleId={pieceStyle} showBadge={true} />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
@@ -129,3 +129,4 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose, pieceSt
     </dialog>
   );
 };
+

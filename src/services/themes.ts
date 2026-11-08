@@ -62,3 +62,4 @@ export const THEMES: Record<BoardThemeId, BoardTheme> = {
     badge: 'bg-sky-500 text-white',
   },
 };
+

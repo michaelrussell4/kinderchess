@@ -17,7 +17,7 @@ export const BotProfile: React.FC<BotProfileProps> = ({
 }) => {
   const handleReplayVoice = () => {
     sounds.playTap();
-    sounds.speak(currentSpeech, bot.pitch, bot.rate);
+    sounds.botSpeak(bot.id, currentSpeech);
   };
 
   return (
@@ -52,7 +52,7 @@ export const BotProfile: React.FC<BotProfileProps> = ({
           <button
             type="button"
             onClick={handleReplayVoice}
-            title="Hear bot speak"
+            title="Hear bot reaction or chime"
             className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors flex-shrink-0"
           >
             <Volume2 className="w-4 h-4" />

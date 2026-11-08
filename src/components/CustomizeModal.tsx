@@ -1,8 +1,17 @@
 import React, { useRef, useEffect } from 'react';
-import { GameSettings, BoardThemeId, PieceStyleId, LearningCategory, LearningDifficulty, ChallengeFrequency, PlayerProfile } from '../types/chess';
+import {
+  GameSettings,
+  BoardThemeId,
+  PieceStyleId,
+  LearningCategory,
+  LearningDifficulty,
+  ChallengeFrequency,
+  PlayerProfile,
+  VoiceMode,
+} from '../types/chess';
 import { THEMES } from '../services/themes';
 import { sounds } from '../services/audio';
-import { X, Volume2, VolumeX, Sparkles, Palette, GraduationCap, User } from 'lucide-react';
+import { X, Volume2, VolumeX, Sparkles, Palette, GraduationCap, User, Music, HelpCircle } from 'lucide-react';
 
 interface CustomizeModalProps {
   isOpen: boolean;
@@ -55,11 +64,20 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
     onUpdateSettings({ ...settings, soundEnabled: next });
   };
 
-  const handleVoiceToggle = () => {
-    const next = !settings.voiceEnabled;
-    sounds.setVoiceEnabled(next);
+  const handleVoiceModeChange = (mode: VoiceMode) => {
+    sounds.setVoiceMode(mode);
     sounds.playTap();
-    onUpdateSettings({ ...settings, voiceEnabled: next });
+    if (mode === 'chimes') {
+      sounds.playBotChime('gizmo');
+    } else if (mode === 'natural') {
+      sounds.speak('Hello! I am ready to play chess with you!');
+    }
+    onUpdateSettings({ ...settings, voiceMode: mode });
+  };
+
+  const handleToggleBadges = () => {
+    sounds.playTap();
+    onUpdateSettings({ ...settings, showPieceBadges: !settings.showPieceBadges });
   };
 
   return (
@@ -198,14 +216,14 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             </div>
           </div>
 
-          {/* Section 3: Piece Style */}
+          {/* Section 3: Piece Artwork & Recognition Badges */}
           <div>
             <h3 className="font-bubble font-bold text-lg text-slate-800 mb-3">Piece Artwork Style</h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3 mb-3">
               {[
-                { id: 'cartoon', name: 'Cute Cartoon 🎨', desc: 'Smiley characters' },
-                { id: 'animals', name: 'Animal Pals 🦁', desc: 'Cute animal set' },
-                { id: 'classic', name: 'Classic Bold 🏛️', desc: 'Crisp chess icons' },
+                { id: 'cartoon', name: 'High-Clarity Vectors 🎨', desc: 'Distinct silhouettes & cross' },
+                { id: 'animals', name: 'Animal Pals 🦁', desc: 'Cute animal emojis' },
+                { id: 'classic', name: 'Classic Bold 🏛️', desc: 'Crisp Staunton icons' },
               ].map((style) => (
                 <button
                   key={style.id}
@@ -224,6 +242,29 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   <p className="text-xs text-slate-500 mt-0.5">{style.desc}</p>
                 </button>
               ))}
+            </div>
+
+            {/* Toggle Piece Name Badges for Kids */}
+            <div className="bg-white p-3 rounded-2xl border border-amber-200 flex items-center justify-between">
+              <div>
+                <p className="font-bubble font-bold text-sm text-slate-800">
+                  Show Piece Letters (K, Q, B, Kn, R, P)
+                </p>
+                <p className="text-xs text-slate-500">
+                  Adds a helpful mini badge on each piece so beginners never confuse King/Queen or Bishop/Pawn!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleBadges}
+                className={`px-3 py-1.5 rounded-xl font-bubble text-xs font-bold border transition-all ${
+                  settings.showPieceBadges
+                    ? 'bg-amber-400 text-amber-950 border-amber-500'
+                    : 'bg-slate-100 text-slate-500 border-slate-300'
+                }`}
+              >
+                {settings.showPieceBadges ? 'ON' : 'OFF'}
+              </button>
             </div>
           </div>
 
@@ -276,9 +317,9 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'easy', label: 'Pre-K & Kinder 🌱', sub: 'Counting & 3-letter words' },
-                    { id: 'medium', label: 'Elementary 🌿', sub: 'Math to 20 & Rhymes' },
-                    { id: 'hard', label: 'Junior Master 🌳', sub: 'Multiplication & Vocab' },
+                    { id: 'easy', label: 'Pre-K & Kinder 🌱', sub: 'Counting, Shapes & 3-letter words' },
+                    { id: 'medium', label: 'Elementary 🌿', sub: 'Math to 25, Opposites & Rhymes' },
+                    { id: 'hard', label: 'Junior Master 🌳', sub: 'Times tables, Division & Vocab' },
                   ].map((diff) => (
                     <button
                       key={diff.id}
@@ -339,34 +380,69 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             </div>
           </div>
 
-          {/* Section 5: Audio & Voice Toggles */}
-          <div className="bg-white p-4 rounded-2xl border border-amber-200 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={handleSoundToggle}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl font-bubble text-sm font-bold border transition-all ${
-                  settings.soundEnabled
-                    ? 'bg-amber-100 text-amber-900 border-amber-300'
-                    : 'bg-slate-100 text-slate-400 border-slate-200'
-                }`}
-              >
-                {settings.soundEnabled ? <Volume2 className="w-4 h-4 text-amber-600" /> : <VolumeX className="w-4 h-4" />}
-                <span>Sound FX: {settings.soundEnabled ? 'ON' : 'OFF'}</span>
-              </button>
+          {/* Section 5: Voice Mode & Audio Settings */}
+          <div>
+            <h3 className="font-bubble font-bold text-lg text-slate-800 mb-3">Sound & Voices</h3>
+            <div className="space-y-3">
+              {/* Voice Mode Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                  Bot Voice / Audio Style
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    {
+                      id: 'natural',
+                      label: 'Natural Voice 🗣️',
+                      desc: 'Clear human reading',
+                    },
+                    {
+                      id: 'chimes',
+                      label: 'Cute Chimes Only 🎵',
+                      desc: 'Playful musical tones (No TTS)',
+                    },
+                    {
+                      id: 'off',
+                      label: 'Voice Mute 🔇',
+                      desc: 'Silent bots',
+                    },
+                  ].map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => handleVoiceModeChange(v.id as VoiceMode)}
+                      className={`p-2.5 rounded-2xl border text-center transition-all ${
+                        settings.voiceMode === v.id
+                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-md ring-2 ring-indigo-400'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-indigo-50'
+                      }`}
+                    >
+                      <p className="font-bubble text-xs font-bold">{v.label}</p>
+                      <p className="text-[10px] opacity-80 mt-0.5">{v.desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-              <button
-                type="button"
-                onClick={handleVoiceToggle}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl font-bubble text-sm font-bold border transition-all ${
-                  settings.voiceEnabled
-                    ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
-                    : 'bg-slate-100 text-slate-400 border-slate-200'
-                }`}
-              >
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-                <span>Bot Voice: {settings.voiceEnabled ? 'ON' : 'OFF'}</span>
-              </button>
+              {/* Sound FX Toggle */}
+              <div className="bg-white p-3 rounded-2xl border border-amber-200 flex items-center justify-between">
+                <div>
+                  <p className="font-bubble font-bold text-sm text-slate-800">Move & Win Sound Effects</p>
+                  <p className="text-xs text-slate-500">Board moves, captures, check fanfare & victory melody</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSoundToggle}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bubble text-xs font-bold border transition-all ${
+                    settings.soundEnabled
+                      ? 'bg-amber-400 text-amber-950 border-amber-500 shadow-sm'
+                      : 'bg-slate-100 text-slate-500 border-slate-300'
+                  }`}
+                >
+                  {settings.soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  <span>{settings.soundEnabled ? 'ON' : 'OFF'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

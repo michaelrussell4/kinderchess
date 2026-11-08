@@ -10,11 +10,11 @@ export interface BotPersona {
   id: BotPersonaId;
   name: string;
   title: string;
-  avatar: string; // Emoji or SVG character
+  avatar: string;
   accentColor: string;
   difficulty: 'Easy' | 'Medium' | 'Medium+' | 'Hard';
   engineDepth: number;
-  randomFactor: number; // probability of making a playful beginner move
+  randomFactor: number;
   pitch: number;
   rate: number;
   description: string;
@@ -49,6 +49,7 @@ export interface LearningChallenge {
 
 export type BoardThemeId = 'candy' | 'galaxy' | 'forest' | 'royal' | 'ocean';
 export type PieceStyleId = 'cartoon' | 'animals' | 'classic';
+export type VoiceMode = 'natural' | 'chimes' | 'off';
 
 export interface BoardTheme {
   id: BoardThemeId;
@@ -73,8 +74,9 @@ export interface PlayerProfile {
 export interface GameSettings {
   boardTheme: BoardThemeId;
   pieceStyle: PieceStyleId;
+  showPieceBadges: boolean;
   soundEnabled: boolean;
-  voiceEnabled: boolean;
+  voiceMode: VoiceMode;
   showHints: boolean;
   showLegalMoves: boolean;
   learningCategory: LearningCategory;

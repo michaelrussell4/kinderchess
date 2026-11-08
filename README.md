@@ -105,3 +105,4 @@ To enable GitHub Pages in your repo:
 
 ## 📜 License
 MIT License. Made with ❤️ for kids and chess learners everywhere!
+

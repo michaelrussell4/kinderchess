@@ -8,11 +8,12 @@ interface BoardProps {
   chess: Chess;
   theme: BoardTheme;
   pieceStyle: PieceStyleId;
+  showPieceBadges?: boolean;
   selectedSquare: string | null;
   validMoves: string[];
   lastMove: { from: string; to: string } | null;
   hintSquare: string | null;
-  orientation: Color; // 'w' or 'b'
+  orientation: Color;
   onSquareClick: (square: string) => void;
   disabled?: boolean;
 }
@@ -21,6 +22,7 @@ export const Board: React.FC<BoardProps> = ({
   chess,
   theme,
   pieceStyle,
+  showPieceBadges = false,
   selectedSquare,
   validMoves,
   lastMove,
@@ -124,6 +126,7 @@ export const Board: React.FC<BoardProps> = ({
                     type={piece.type}
                     color={piece.color}
                     styleId={pieceStyle}
+                    showBadge={showPieceBadges}
                     className="z-10"
                   />
                 )}

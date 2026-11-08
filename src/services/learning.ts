@@ -1,5 +1,6 @@
 import { LearningCategory, LearningDifficulty, LearningChallenge } from '../types/chess';
 
+// Utility: Unbiased Fisher-Yates shuffle
 function shuffle<T>(array: T[]): T[] {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -13,503 +14,843 @@ function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+// Anti-Repetition Cache: stores last 40 question signatures so kids never get repeats!
+const recentSignatures: string[] = [];
+const MAX_RECENT = 40;
+
+function rememberSignature(sig: string) {
+  recentSignatures.push(sig);
+  if (recentSignatures.length > MAX_RECENT) {
+    recentSignatures.shift();
+  }
+}
+
+function wasRecentlyAsked(sig: string): boolean {
+  return recentSignatures.includes(sig);
+}
+
 export function generateChallenge(
   category: LearningCategory,
   difficulty: LearningDifficulty
 ): LearningChallenge {
-  // If 'mixed', pick randomly between math, reading, chess
-  let selectedCategory: 'math' | 'reading' | 'chess' = 'math';
-  if (category === 'mixed') {
-    const r = Math.random();
-    if (r < 0.45) selectedCategory = 'math';
-    else if (r < 0.8) selectedCategory = 'reading';
-    else selectedCategory = 'chess';
-  } else {
-    selectedCategory = category;
+  // Try up to 8 times to find a question that wasn't asked recently
+  for (let attempt = 0; attempt < 8; attempt++) {
+    let cat: 'math' | 'reading' | 'chess' = 'math';
+    if (category === 'mixed') {
+      const r = Math.random();
+      if (r < 0.45) cat = 'math';
+      else if (r < 0.8) cat = 'reading';
+      else cat = 'chess';
+    } else {
+      cat = category;
+    }
+
+    let challenge: LearningChallenge;
+    if (cat === 'math') {
+      challenge = generateMathChallenge(difficulty);
+    } else if (cat === 'reading') {
+      challenge = generateReadingChallenge(difficulty);
+    } else {
+      challenge = generateChessChallenge(difficulty);
+    }
+
+    const sig = `${challenge.category}:${challenge.question}:${challenge.options[challenge.correctIndex]}`;
+    if (!wasRecentlyAsked(sig) || attempt === 7) {
+      rememberSignature(sig);
+      return challenge;
+    }
   }
 
-  if (selectedCategory === 'math') {
-    return generateMathChallenge(difficulty);
-  } else if (selectedCategory === 'reading') {
-    return generateReadingChallenge(difficulty);
-  } else {
-    return generateChessChallenge(difficulty);
-  }
+  // Fallback
+  return generateMathChallenge(difficulty);
 }
 
-// ------------------- MATH CHALLENGES -------------------
+// Helper to assemble options with correct answer shuffled evenly
+function makeChallenge(
+  category: 'math' | 'reading' | 'chess',
+  subject: string,
+  question: string,
+  correct: string,
+  distractors: string[],
+  subtext: string,
+  explanation: string,
+  speechText: string,
+  visualEmoji?: string
+): LearningChallenge {
+  // Ensure exactly 3 distractors distinct from correct
+  const distSet = new Set<string>();
+  for (const d of distractors) {
+    if (d !== correct && !distSet.has(d)) {
+      distSet.add(d);
+    }
+    if (distSet.size === 3) break;
+  }
+
+  const allOpts = shuffle([correct, ...Array.from(distSet)]);
+  const correctIndex = allOpts.indexOf(correct);
+
+  return {
+    id: `${category}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    category,
+    subject,
+    question,
+    subtext,
+    visualEmoji,
+    options: allOpts,
+    correctIndex,
+    explanation,
+    speechText,
+  };
+}
+
+// Helper to generate 3 numerical distractors close to the correct value
+function makeNumberDistractors(correct: number, min = 0, max = 50): string[] {
+  const set = new Set<number>();
+  const offsets = shuffle([-3, -2, -1, 1, 2, 3, 4, -4, 5, -5]);
+
+  for (const off of offsets) {
+    const val = correct + off;
+    if (val >= min && val <= max && val !== correct) {
+      set.add(val);
+    }
+    if (set.size === 3) break;
+  }
+
+  while (set.size < 3) {
+    const r = randInt(min, max);
+    if (r !== correct) set.add(r);
+  }
+
+  return Array.from(set).map(String);
+}
+
+// ============================================================================
+// DYNAMIC PROCEDURAL MATH GENERATOR
+// ============================================================================
+const EMOJIS = ['🍎', '⭐', '🎈', '🍪', '🐱', '🚀', '🐶', '🍕', '⚽', '🚗', '🍦', '🎁', '🦁', '🍓', '🐼', '🍩'];
+
 function generateMathChallenge(diff: LearningDifficulty): LearningChallenge {
-  const id = 'math-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+  const emoji = pickRandom(EMOJIS);
 
   if (diff === 'easy') {
-    // Kindergarten / Pre-K: Visual counting & Addition up to 10
-    const type = Math.random();
+    // PRE-K & KINDERGARTEN (Ages 4-6)
+    const mode = Math.random();
 
-    if (type < 0.5) {
-      // Visual addition with emoji items
+    if (mode < 0.28) {
+      // 1. Visual Object Counting
+      const count = randInt(2, 8);
+      const items = Array(count).fill(emoji).join(' ');
+      const question = `How many ${emoji} are there?`;
+      const subtext = `[ ${items} ]`;
+      const distractors = makeNumberDistractors(count, 1, 10);
+      return makeChallenge(
+        'math',
+        'Visual Counting',
+        question,
+        String(count),
+        distractors,
+        subtext,
+        `Great counting! There are ${count} ${emoji}!`,
+        `How many ${emoji} do you see?`,
+        emoji
+      );
+    } else if (mode < 0.52) {
+      // 2. Visual Addition
       const a = randInt(1, 5);
       const b = randInt(1, 4);
       const sum = a + b;
-      const emoji = ['🍎', '⭐', '🎈', '🍪', '🐱', '🚀'][randInt(0, 5)];
-
       const visualA = Array(a).fill(emoji).join(' ');
       const visualB = Array(b).fill(emoji).join(' ');
-
       const question = `${a} + ${b} = ?`;
-      const subtext = `Count the items: [ ${visualA} ] + [ ${visualB} ]`;
-      const explanation = `Great job! ${a} plus ${b} equals ${sum}!`;
-
-      const options = generateNumberOptions(sum, 1, 10);
-
-      return {
-        id,
-        category: 'math',
-        subject: 'Counting & Addition',
+      const subtext = `[ ${visualA} ]  +  [ ${visualB} ]`;
+      const distractors = makeNumberDistractors(sum, 1, 10);
+      return makeChallenge(
+        'math',
+        'Fun Addition',
         question,
+        String(sum),
+        distractors,
         subtext,
-        visualEmoji: emoji,
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation,
-        speechText: `Can you solve: ${a} plus ${b}? How many ${emoji} are there altogether?`,
-      };
-    } else {
-      // Simple subtraction within 5 to 8
+        `Awesome! ${a} plus ${b} equals ${sum}!`,
+        `Can you solve: ${a} plus ${b}?`,
+        emoji
+      );
+    } else if (mode < 0.72) {
+      // 3. Subtraction Fun
       const a = randInt(3, 8);
       const b = randInt(1, a - 1);
-      const diffResult = a - b;
-
+      const diffVal = a - b;
       const question = `${a} - ${b} = ?`;
-      const subtext = `If you have ${a} cookies and eat ${b}, how many are left? 🍪`;
-      const explanation = `Awesome! ${a} minus ${b} is ${diffResult}!`;
-
-      const options = generateNumberOptions(diffResult, 0, 8);
-
-      return {
-        id,
-        category: 'math',
-        subject: 'Subtraction Fun',
+      const subtext = `If you have ${a} ${emoji} and give away ${b}, how many are left?`;
+      const distractors = makeNumberDistractors(diffVal, 0, 8);
+      return makeChallenge(
+        'math',
+        'Subtraction',
         question,
+        String(diffVal),
+        distractors,
         subtext,
-        visualEmoji: '🍪',
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation,
-        speechText: `What is ${a} minus ${b}?`,
-      };
+        `Terrific! ${a} minus ${b} is ${diffVal}!`,
+        `What is ${a} minus ${b}?`,
+        emoji
+      );
+    } else if (mode < 0.86) {
+      // 4. Number Order (What comes next?)
+      const num = randInt(1, 9);
+      const next = num + 1;
+      const question = `What number comes AFTER ${num}?`;
+      const subtext = `Counting: ..., ${num - 1 >= 0 ? num - 1 + ', ' : ''}${num}, ❓`;
+      const distractors = makeNumberDistractors(next, 1, 12);
+      return makeChallenge(
+        'math',
+        'Number Order',
+        question,
+        String(next),
+        distractors,
+        subtext,
+        `Spot on! ${next} comes right after ${num}!`,
+        `What number comes after ${num}?`,
+        '🔢'
+      );
+    } else {
+      // 5. Basic Shapes
+      const shapes = [
+        { name: 'Triangle', sides: 3, emoji: '🔺' },
+        { name: 'Square', sides: 4, emoji: '🟩' },
+        { name: 'Rectangle', sides: 4, emoji: '▭' },
+        { name: 'Pentagon', sides: 5, emoji: '⬟' },
+      ];
+      const s = pickRandom(shapes);
+      const question = `How many sides does a ${s.name} have?`;
+      const subtext = `Look at the shape: ${s.emoji}`;
+      const distractors = makeNumberDistractors(s.sides, 1, 8);
+      return makeChallenge(
+        'math',
+        'Shapes & Sides',
+        question,
+        String(s.sides),
+        distractors,
+        subtext,
+        `Super! A ${s.name} has ${s.sides} sides!`,
+        `How many sides does a ${s.name} have?`,
+        s.emoji
+      );
     }
   } else if (diff === 'medium') {
-    // Elementary: Addition/subtraction to 20, skip counting, easy multiplication
+    // ELEMENTARY (Ages 7-9)
     const mode = Math.random();
 
-    if (mode < 0.35) {
-      // Addition up to 20
-      const a = randInt(6, 12);
-      const b = randInt(4, 9);
+    if (mode < 0.25) {
+      // 1. Addition up to 25
+      const a = randInt(6, 14);
+      const b = randInt(5, 11);
       const sum = a + b;
-      const options = generateNumberOptions(sum, 10, 25);
-
-      return {
-        id,
-        category: 'math',
-        subject: 'Addition Up to 20',
-        question: `${a} + ${b} = ?`,
-        subtext: `Add the two friendly numbers together!`,
-        visualEmoji: '➕',
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation: `Super! ${a} + ${b} = ${sum}!`,
-        speechText: `What is ${a} plus ${b}?`,
-      };
+      const question = `${a} + ${b} = ?`;
+      const subtext = `Add the two friendly numbers together!`;
+      const distractors = makeNumberDistractors(sum, 10, 30);
+      return makeChallenge(
+        'math',
+        'Addition to 25',
+        question,
+        String(sum),
+        distractors,
+        subtext,
+        `Great mental math! ${a} + ${b} = ${sum}!`,
+        `What is ${a} plus ${b}?`,
+        '➕'
+      );
+    } else if (mode < 0.5) {
+      // 2. Subtraction within 20
+      const a = randInt(12, 20);
+      const b = randInt(4, 9);
+      const diffVal = a - b;
+      const question = `${a} - ${b} = ?`;
+      const subtext = `Subtract carefully!`;
+      const distractors = makeNumberDistractors(diffVal, 1, 16);
+      return makeChallenge(
+        'math',
+        'Subtraction',
+        question,
+        String(diffVal),
+        distractors,
+        subtext,
+        `High five! ${a} minus ${b} is ${diffVal}!`,
+        `What is ${a} minus ${b}?`,
+        '➖'
+      );
     } else if (mode < 0.7) {
-      // Skip counting pattern
-      const step = [2, 5, 10][randInt(0, 2)];
-      const start = randInt(1, 3) * step;
+      // 3. Skip Counting / Patterns
+      const step = pickRandom([2, 3, 5, 10]);
+      const start = randInt(1, 4) * step;
       const seq = [start, start + step, start + step * 2, start + step * 3];
-      const target = start + step * 3;
-      const displaySeq = `${seq[0]}, ${seq[1]}, ${seq[2]}, ❓`;
-
-      const options = generateNumberOptions(target, Math.max(2, target - 10), target + 10);
-
-      return {
-        id,
-        category: 'math',
-        subject: `Counting by ${step}s`,
-        question: `What comes next?`,
-        subtext: displaySeq,
-        visualEmoji: '🔢',
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation: `Brilliant! Counting by ${step}s gives ${target}!`,
-        speechText: `What number comes next in the pattern: ${seq[0]}, ${seq[1]}, ${seq[2]}?`,
-      };
+      const target = seq[3];
+      const question = `What number completes the pattern?`;
+      const subtext = `${seq[0]}, ${seq[1]}, ${seq[2]}, ❓  (Skip counting by ${step}s)`;
+      const distractors = makeNumberDistractors(target, 4, 60);
+      return makeChallenge(
+        'math',
+        `Counting by ${step}s`,
+        question,
+        String(target),
+        distractors,
+        subtext,
+        `Brilliant pattern finder! The next number is ${target}!`,
+        `What number comes next after ${seq[2]} when counting by ${step}s?`,
+        '🔢'
+      );
+    } else if (mode < 0.85) {
+      // 4. Multiplication Sparks (2, 3, 4, 5, 10)
+      const a = pickRandom([2, 3, 4, 5, 10]);
+      const b = randInt(2, 7);
+      const prod = a * b;
+      const question = `${a} × ${b} = ?`;
+      const subtext = `${a} groups of ${b}`;
+      const distractors = makeNumberDistractors(prod, 4, 50);
+      return makeChallenge(
+        'math',
+        'Multiplication Sparks',
+        question,
+        String(prod),
+        distractors,
+        subtext,
+        `Spot on! ${a} times ${b} equals ${prod}!`,
+        `What is ${a} times ${b}?`,
+        '✨'
+      );
     } else {
-      // Easy multiplication (2s, 3s, 5s)
-      const a = [2, 3, 5][randInt(0, 2)];
-      const b = randInt(2, 6);
-      const product = a * b;
-      const options = generateNumberOptions(product, 4, 30);
-
-      return {
-        id,
-        category: 'math',
-        subject: 'Multiplication Sparks',
-        question: `${a} × ${b} = ?`,
-        subtext: `${a} groups of ${b}`,
-        visualEmoji: '✨',
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation: `Spot on! ${a} times ${b} equals ${product}!`,
-        speechText: `What is ${a} times ${b}?`,
-      };
+      // 5. Double & Halves
+      const num = randInt(3, 9);
+      const isDouble = Math.random() < 0.5;
+      if (isDouble) {
+        const ans = num * 2;
+        const question = `What is DOUBLE ${num}?`;
+        const subtext = `${num} + ${num} = ?`;
+        const distractors = makeNumberDistractors(ans, 4, 25);
+        return makeChallenge(
+          'math',
+          'Doubles',
+          question,
+          String(ans),
+          distractors,
+          subtext,
+          `Super! Double ${num} is ${ans}!`,
+          `What is double ${num}?`,
+          '⚡'
+        );
+      } else {
+        const doubleVal = num * 2;
+        const question = `What is HALF of ${doubleVal}?`;
+        const subtext = `Divide ${doubleVal} into two equal parts`;
+        const distractors = makeNumberDistractors(num, 1, 15);
+        return makeChallenge(
+          'math',
+          'Halves',
+          question,
+          String(num),
+          distractors,
+          subtext,
+          `You nailed it! Half of ${doubleVal} is ${num}!`,
+          `What is half of ${doubleVal}?`,
+          '➗'
+        );
+      }
     }
   } else {
-    // Master: Multiplication tables & division
+    // JUNIOR MASTER (Ages 10+)
     const mode = Math.random();
-    if (mode < 0.6) {
-      const a = randInt(4, 9);
+
+    if (mode < 0.45) {
+      // 1. Full Multiplication Tables (6, 7, 8, 9)
+      const a = randInt(6, 9);
       const b = randInt(4, 9);
-      const product = a * b;
-      const options = generateNumberOptions(product, 16, 81);
-
-      return {
-        id,
-        category: 'math',
-        subject: 'Multiplication Master',
-        question: `${a} × ${b} = ?`,
-        subtext: `Multiply like a chess grandmaster!`,
-        visualEmoji: '🧠',
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation: `Impressive calculation! ${a} × ${b} = ${product}!`,
-        speechText: `What is ${a} multiplied by ${b}?`,
-      };
-    } else {
-      // Division
-      const divisor = randInt(3, 8);
-      const quotient = randInt(2, 9);
+      const prod = a * b;
+      const question = `${a} × ${b} = ?`;
+      const subtext = `Grandmaster calculation!`;
+      const distractors = makeNumberDistractors(prod, 20, 85);
+      return makeChallenge(
+        'math',
+        'Multiplication Master',
+        question,
+        String(prod),
+        distractors,
+        subtext,
+        `Spectacular! ${a} × ${b} = ${prod}!`,
+        `What is ${a} times ${b}?`,
+        '🧠'
+      );
+    } else if (mode < 0.75) {
+      // 2. Division Basics
+      const divisor = randInt(3, 9);
+      const quotient = randInt(3, 9);
       const dividend = divisor * quotient;
-      const options = generateNumberOptions(quotient, 1, 12);
-
-      return {
-        id,
-        category: 'math',
-        subject: 'Division Magic',
-        question: `${dividend} ÷ ${divisor} = ?`,
-        subtext: `Divide into equal parts`,
-        visualEmoji: '➗',
-        options: options.items.map(String),
-        correctIndex: options.correctIndex,
-        explanation: `Spectacular! ${dividend} divided by ${divisor} is ${quotient}!`,
-        speechText: `What is ${dividend} divided by ${divisor}?`,
-      };
-    }
-  }
-}
-
-// Helper to generate 4 distinct options around a correct number
-function generateNumberOptions(correct: number, min: number, max: number): { items: number[]; correctIndex: number } {
-  const set = new Set<number>();
-  set.add(correct);
-
-  while (set.size < 4) {
-    const offset = randInt(-3, 3);
-    const candidate = correct + offset;
-    if (candidate >= min && candidate !== correct) {
-      set.add(candidate);
+      const question = `${dividend} ÷ ${divisor} = ?`;
+      const subtext = `How many times does ${divisor} go into ${dividend}?`;
+      const distractors = makeNumberDistractors(quotient, 1, 12);
+      return makeChallenge(
+        'math',
+        'Division Power',
+        question,
+        String(quotient),
+        distractors,
+        subtext,
+        `Sharp thinking! ${dividend} ÷ ${divisor} = ${quotient}!`,
+        `What is ${dividend} divided by ${divisor}?`,
+        '➗'
+      );
     } else {
-      set.add(randInt(min, max + 4));
+      // 3. Two-Step Mental Math
+      const a = randInt(2, 5);
+      const b = randInt(2, 4);
+      const c = randInt(3, 8);
+      const ans = a * b + c;
+      const question = `(${a} × ${b}) + ${c} = ?`;
+      const subtext = `Do multiplication first: ${a * b} + ${c}`;
+      const distractors = makeNumberDistractors(ans, 6, 35);
+      return makeChallenge(
+        'math',
+        'Order of Operations',
+        question,
+        String(ans),
+        distractors,
+        subtext,
+        `Masterful calculation! (${a} × ${b}) + ${c} is ${ans}!`,
+        `What is ${a} times ${b}, plus ${c}?`,
+        '🎯'
+      );
     }
   }
-
-  const items = shuffle(Array.from(set));
-  return {
-    items,
-    correctIndex: items.indexOf(correct),
-  };
 }
 
-// ------------------- READING / WORD CHALLENGES -------------------
-interface StaticQuestion {
-  subject: string;
-  question: string;
-  subtext: string;
-  visualEmoji: string;
-  correct: string;
-  distractors: string[];
-  explanation: string;
-  speechText: string;
-}
+// ============================================================================
+// DYNAMIC PROCEDURAL READING & WORD GENERATOR
+// ============================================================================
 
-const EASY_READING_POOL: StaticQuestion[] = [
-  {
-    subject: 'Rhyme Time',
-    question: 'What rhymes with CAT?',
-    subtext: 'Listen for the ending sound "-at"',
-    visualEmoji: '🐱',
-    correct: 'BAT',
-    distractors: ['SUN', 'PIG', 'DOG'],
-    explanation: 'Awesome! Cat and Bat both rhyme!',
-    speechText: 'What word rhymes with Cat? Bat, Sun, Pig, or Dog?',
-  },
-  {
-    subject: 'Rhyme Time',
-    question: 'What rhymes with FROG?',
-    subtext: 'Hop like a frog to the matching sound!',
-    visualEmoji: '🐸',
-    correct: 'LOG',
-    distractors: ['CUP', 'BED', 'STAR'],
-    explanation: 'Hooray! Frog and Log sound the same at the end!',
-    speechText: 'What word rhymes with Frog? Log, Cup, Bed, or Star?',
-  },
-  {
-    subject: 'Sight Words',
-    question: 'Which word spells SUN?',
-    subtext: 'Find the bright shining star in our sky!',
-    visualEmoji: '☀️',
-    correct: 'SUN',
-    distractors: ['RUN', 'SIT', 'SEE'],
-    explanation: 'You got it! S-U-N spells Sun!',
-    speechText: 'Which word spells Sun? S-U-N, R-U-N, S-I-T, or S-E-E?',
-  },
-  {
-    subject: 'Missing Letter',
-    question: 'Complete the word: K _ N G',
-    subtext: 'The ruler on the chessboard! 👑',
-    visualEmoji: '👑',
-    correct: 'I',
-    distractors: ['A', 'O', 'U'],
-    explanation: 'Fantastic! K-I-N-G makes King!',
-    speechText: 'What missing letter completes the word King? K, blank, N, G.',
-  },
-  {
-    subject: 'First Sounds',
-    question: 'What letter does STAR start with?',
-    subtext: 'Twinkle twinkle little star! ⭐',
-    visualEmoji: '⭐',
-    correct: 'S',
-    distractors: ['T', 'M', 'B'],
-    explanation: 'Super! Star starts with the letter S!',
-    speechText: 'What letter does the word Star start with?',
-  },
-  {
-    subject: 'Opposites',
-    question: 'What is the opposite of BIG?',
-    subtext: 'Like an elephant compared to a mouse 🐘 🐭',
-    visualEmoji: '🐘',
-    correct: 'SMALL',
-    distractors: ['FAST', 'BLUE', 'HEAVY'],
-    explanation: 'Correct! The opposite of Big is Small!',
-    speechText: 'What is the opposite of Big? Small, Fast, Blue, or Heavy?',
-  },
+// Extensive Rhyme Families with dozens of words
+const RHYME_FAMILIES: Record<string, string[]> = {
+  '-at': ['CAT', 'BAT', 'HAT', 'MAT', 'RAT', 'FAT', 'SAT'],
+  '-og': ['DOG', 'FROG', 'LOG', 'FOG', 'JOG'],
+  '-un': ['SUN', 'RUN', 'FUN', 'BUN', 'NUN'],
+  '-ug': ['BUG', 'HUG', 'MUG', 'RUG', 'JUG', 'TUG'],
+  '-en': ['HEN', 'PEN', 'TEN', 'MEN', 'DEN'],
+  '-in': ['WIN', 'PIN', 'TIN', 'BIN', 'FIN'],
+  '-op': ['TOP', 'HOP', 'POP', 'MOP', 'STOP'],
+  '-an': ['FAN', 'MAN', 'PAN', 'VAN', 'CAN'],
+  '-ed': ['BED', 'RED', 'FED', 'LED'],
+  '-all': ['BALL', 'CALL', 'FALL', 'TALL', 'WALL'],
+  '-ake': ['CAKE', 'BAKE', 'LAKE', 'MAKE', 'SNAKE'],
+  '-ight': ['NIGHT', 'LIGHT', 'BRIGHT', 'KNIGHT', 'FLIGHT', 'SIGHT'],
+  '-eep': ['SLEEP', 'SHEEP', 'DEEP', 'KEEP', 'BEEP'],
+  '-ay': ['DAY', 'PLAY', 'SAY', 'WAY', 'CLAY', 'STAY'],
+};
+
+// Word Opposites Pool (Over 30 pairs)
+const OPPOSITES_POOL = [
+  { a: 'HOT', b: 'COLD', emoji: '🔥' },
+  { a: 'BIG', b: 'SMALL', emoji: '🐘' },
+  { a: 'FAST', b: 'SLOW', emoji: '🏎️' },
+  { a: 'UP', b: 'DOWN', emoji: '🎈' },
+  { a: 'SOFT', b: 'HARD', emoji: '🧸' },
+  { a: 'LIGHT', b: 'DARK', emoji: '💡' },
+  { a: 'HAPPY', b: 'SAD', emoji: '😊' },
+  { a: 'OPEN', b: 'CLOSED', emoji: '🚪' },
+  { a: 'CLEAN', b: 'DIRTY', emoji: '🧼' },
+  { a: 'TALL', b: 'SHORT', emoji: '🦒' },
+  { a: 'STRONG', b: 'WEAK', emoji: '💪' },
+  { a: 'QUIET', b: 'LOUD', emoji: '🤫' },
+  { a: 'SWEET', b: 'SOUR', emoji: '🍬' },
+  { a: 'WET', b: 'DRY', emoji: '🌧️' },
+  { a: 'BRAVE', b: 'AFRAID', emoji: '🦁' },
+  { a: 'WIN', b: 'LOSE', emoji: '🏆' },
+  { a: 'EMPTY', b: 'FULL', emoji: '🥛' },
+  { a: 'EARLY', b: 'LATE', emoji: '⏰' },
+  { a: 'SMOOTH', b: 'ROUGH', emoji: '🪨' },
+  { a: 'PUSH', b: 'PULL', emoji: '🚪' },
 ];
 
-const MEDIUM_READING_POOL: StaticQuestion[] = [
-  {
-    subject: 'Opposites',
-    question: 'What is the opposite of BRAVE?',
-    subtext: 'When someone feels very scared...',
-    visualEmoji: '🦁',
-    correct: 'AFRAID',
-    distractors: ['STRONG', 'HAPPY', 'POLITE'],
-    explanation: 'Well done! Afraid is the opposite of brave.',
-    speechText: 'What is the opposite of Brave? Afraid, Strong, Happy, or Polite?',
-  },
-  {
-    subject: 'Word Meaning',
-    question: 'Which word describes someone who shares?',
-    subtext: 'Always sharing toys and treats with friends!',
-    visualEmoji: '🎁',
-    correct: 'GENEROUS',
-    distractors: ['GREEDY', 'LOUD', 'SLEEPY'],
-    explanation: 'Wonderful! A generous person loves sharing.',
-    speechText: 'Which word describes someone who happily shares? Generous, Greedy, Loud, or Sleepy?',
-  },
-  {
-    subject: 'Compound Words',
-    question: 'BUTTER + FLY = ?',
-    subtext: 'Combine the two words into a beautiful creature! 🦋',
-    visualEmoji: '🦋',
-    correct: 'BUTTERFLY',
-    distractors: ['BUTTERCUP', 'DRAGONFLY', 'FIREFLY'],
-    explanation: 'Brilliant! Butter and fly make Butterfly!',
-    speechText: 'What compound word do you get when you put Butter and Fly together?',
-  },
-  {
-    subject: 'Spelling Hero',
-    question: 'Which is spelled correctly?',
-    subtext: 'A person you enjoy playing chess with!',
-    visualEmoji: '🤝',
-    correct: 'FRIEND',
-    distractors: ['FREIND', 'FREND', 'FRIND'],
-    explanation: 'Spot on! Remember: I before E in Friend!',
-    speechText: 'Which is the correct spelling of the word Friend?',
-  },
-  {
-    subject: 'Rhyme Master',
-    question: 'What rhymes with KNIGHT?',
-    subtext: 'Notice the silent K and G-H-T pattern! 🛡️',
-    visualEmoji: '🛡️',
-    correct: 'LIGHT',
-    distractors: ['KITE', 'NOTE', 'KNOT'],
-    explanation: 'Awesome! Knight and Light rhyme with the "-ight" sound!',
-    speechText: 'What word rhymes with Knight? Light, Kite, Note, or Knot?',
-  },
-  {
-    subject: 'Word Groups',
-    question: 'Which word does NOT belong?',
-    subtext: 'Three are fruits, one is something else!',
-    visualEmoji: '🍇',
-    correct: 'CHAIR',
-    distractors: ['APPLE', 'BANANA', 'ORANGE'],
-    explanation: 'Smart thinking! Chair is furniture, not a fruit!',
-    speechText: 'Which word does not belong? Apple, Banana, Orange, or Chair?',
-  },
+// Compound Words Pool
+const COMPOUND_WORDS = [
+  { part1: 'SUN', part2: 'FLOWER', whole: 'SUNFLOWER', emoji: '🌻' },
+  { part1: 'PAN', part2: 'CAKE', whole: 'PANCAKE', emoji: '🥞' },
+  { part1: 'RAIN', part2: 'BOW', whole: 'RAINBOW', emoji: '🌈' },
+  { part1: 'FOOT', part2: 'BALL', whole: 'FOOTBALL', emoji: '⚽' },
+  { part1: 'STAR', part2: 'FISH', whole: 'STARFISH', emoji: '⭐' },
+  { part1: 'BUTTER', part2: 'FLY', whole: 'BUTTERFLY', emoji: '🦋' },
+  { part1: 'CAMP', part2: 'FIRE', whole: 'CAMPFIRE', emoji: '🔥' },
+  { part1: 'SNOW', part2: 'MAN', whole: 'SNOWMAN', emoji: '☃️' },
+  { part1: 'BED', part2: 'ROOM', whole: 'BEDROOM', emoji: '🛏️' },
+  { part1: 'JELLY', part2: 'FISH', whole: 'JELLYFISH', emoji: '🪼' },
+  { part1: 'POP', part2: 'CORN', whole: 'POPCORN', emoji: '🍿' },
+  { part1: 'CUP', part2: 'CAKE', whole: 'CUPCAKE', emoji: '🧁' },
+  { part1: 'FIRE', part2: 'FLY', whole: 'FIREFLY', emoji: '✨' },
 ];
 
-const HARD_READING_POOL: StaticQuestion[] = [
-  {
-    subject: 'Vocabulary',
-    question: 'What does "STRATEGY" mean?',
-    subtext: 'Every great chess player uses one! ♟️',
-    visualEmoji: '🎯',
-    correct: 'A smart plan to achieve a goal',
-    distractors: ['Moving pieces as fast as possible', 'A type of wooden chess board', 'Throwing your pieces in the air'],
-    explanation: 'Grandmaster thinking! Strategy is having a smart plan.',
-    speechText: 'What does the word Strategy mean in chess and life?',
-  },
-  {
-    subject: 'Prefixes',
-    question: 'What does the prefix "RE-" mean in "REPLAY"?',
-    subtext: 'Like when you watch a move again...',
-    visualEmoji: '🔁',
-    correct: 'Again',
-    distractors: ['Never', 'Before', 'Under'],
-    explanation: 'Excellent! Re- means to do something again, like replay or rematch!',
-    speechText: 'What does the prefix R-E mean in the word Replay?',
-  },
-  {
-    subject: 'Synonyms',
-    question: 'Which word is a synonym for TRIUMPH?',
-    subtext: 'A glorious victory in a match!',
-    visualEmoji: '🏆',
-    correct: 'VICTORY',
-    distractors: ['DEFEAT', 'SURRENDER', 'REST'],
-    explanation: 'Spectacular! Triumph means a magnificent victory!',
-    speechText: 'Which word is a synonym for Triumph? Victory, Defeat, Surrender, or Rest?',
-  },
-  {
-    subject: 'Figures of Speech',
-    question: 'Complete the saying: "Think before you..."',
-    subtext: 'Wise advice for every chess move and action!',
-    visualEmoji: '🤔',
-    correct: 'LEAP',
-    distractors: ['SLEEP', 'SING', 'EAT'],
-    explanation: 'Spot on! "Look (or think) before you leap" means be cautious!',
-    speechText: 'Complete the famous saying: Think before you... what?',
-  },
+// Sight Words Pool
+const SIGHT_WORDS_EASY = [
+  'CAT', 'DOG', 'SUN', 'RED', 'BIG', 'RUN', 'SEE', 'HAT', 'BED', 'PIG',
+  'CUP', 'BOX', 'FLY', 'HOP', 'EAT', 'CAR', 'BUS', 'BOY', 'GIRL', 'TOY'
+];
+
+const SIGHT_WORDS_MEDIUM = [
+  'WATER', 'LIGHT', 'HOUSE', 'FRIEND', 'SCHOOL', 'ANIMAL', 'MOTHER', 'FATHER',
+  'LITTLE', 'GREEN', 'HAPPY', 'YELLOW', 'PLEASE', 'PRETTY', 'NIGHT', 'WINDOW'
+];
+
+// Animal Sounds Pool
+const ANIMAL_SOUNDS = [
+  { animal: 'Cow', sound: 'MOO', emoji: '🐮' },
+  { animal: 'Duck', sound: 'QUACK', emoji: '🦆' },
+  { animal: 'Lion', sound: 'ROAR', emoji: '🦁' },
+  { animal: 'Dog', sound: 'WOOF', emoji: '🐶' },
+  { animal: 'Cat', sound: 'MEOW', emoji: '🐱' },
+  { animal: 'Sheep', sound: 'BAA', emoji: '🐑' },
+  { animal: 'Frog', sound: 'RIBBIT', emoji: '🐸' },
+  { animal: 'Bee', sound: 'BUZZ', emoji: '🐝' },
+  { animal: 'Horse', sound: 'NEIGH', emoji: '🐴' },
+  { animal: 'Owl', sound: 'HOOT', emoji: '🦉' },
 ];
 
 function generateReadingChallenge(diff: LearningDifficulty): LearningChallenge {
-  const pool = diff === 'easy' ? EASY_READING_POOL : diff === 'medium' ? MEDIUM_READING_POOL : HARD_READING_POOL;
-  const picked = pool[randInt(0, pool.length - 1)];
+  if (diff === 'easy') {
+    // PRE-K & KINDERGARTEN
+    const mode = Math.random();
 
-  const allOpts = shuffle([picked.correct, ...picked.distractors]);
-  const correctIndex = allOpts.indexOf(picked.correct);
+    if (mode < 0.3) {
+      // 1. Dynamic Rhyme Match
+      const families = Object.keys(RHYME_FAMILIES);
+      const chosenFamilyKey = pickRandom(families);
+      const wordsInFamily = RHYME_FAMILIES[chosenFamilyKey];
+      const targetWord = pickRandom(wordsInFamily);
 
-  return {
-    id: 'reading-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-    category: 'reading',
-    subject: picked.subject,
-    question: picked.question,
-    subtext: picked.subtext,
-    visualEmoji: picked.visualEmoji,
-    options: allOpts,
-    correctIndex,
-    explanation: picked.explanation,
-    speechText: picked.speechText,
-  };
+      // Correct rhyming word (different from target)
+      const remainingFamilyWords = wordsInFamily.filter((w) => w !== targetWord);
+      const rhymingWord = pickRandom(remainingFamilyWords);
+
+      // Distractors from other families
+      const otherFamilyWords: string[] = [];
+      for (const fam of families) {
+        if (fam !== chosenFamilyKey) {
+          otherFamilyWords.push(...RHYME_FAMILIES[fam]);
+        }
+      }
+      const distractors = shuffle(otherFamilyWords).slice(0, 3);
+
+      return makeChallenge(
+        'reading',
+        'Rhyme Time',
+        `What rhymes with ${targetWord}?`,
+        rhymingWord,
+        distractors,
+        `Listen for the "${chosenFamilyKey}" ending sound!`,
+        `Hooray! ${targetWord} and ${rhymingWord} both rhyme!`,
+        `What word rhymes with ${targetWord}?`,
+        '🎵'
+      );
+    } else if (mode < 0.55) {
+      // 2. Animal Sounds
+      const picked = pickRandom(ANIMAL_SOUNDS);
+      const distractors = ANIMAL_SOUNDS.filter((a) => a.sound !== picked.sound)
+        .map((a) => a.sound)
+        .slice(0, 3);
+
+      return makeChallenge(
+        'reading',
+        'Animal Sounds',
+        `What sound does a ${picked.animal} make?`,
+        picked.sound,
+        distractors,
+        `Think of a friendly ${picked.animal}! ${picked.emoji}`,
+        `Spot on! A ${picked.animal} goes "${picked.sound}"!`,
+        `What sound does a ${picked.animal} make?`,
+        picked.emoji
+      );
+    } else if (mode < 0.78) {
+      // 3. Sight Word Recognition
+      const word = pickRandom(SIGHT_WORDS_EASY);
+      const otherWords = SIGHT_WORDS_EASY.filter((w) => w !== word);
+      const distractors = shuffle(otherWords).slice(0, 3);
+
+      return makeChallenge(
+        'reading',
+        'Sight Word Hero',
+        `Which word spells ${word}?`,
+        word,
+        distractors,
+        `Look closely at the letters!`,
+        `Great reading! You found the word ${word}!`,
+        `Which word spells ${word}?`,
+        '📖'
+      );
+    } else {
+      // 4. First Letter Phonics
+      const word = pickRandom(SIGHT_WORDS_EASY);
+      const firstLetter = word[0];
+      const allLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').filter((l) => l !== firstLetter);
+      const distractors = shuffle(allLetters).slice(0, 3);
+
+      return makeChallenge(
+        'reading',
+        'First Letter Sounds',
+        `What letter does "${word}" start with?`,
+        firstLetter,
+        distractors,
+        `Say the word out loud: ${word}`,
+        `Awesome phonics! "${word}" starts with the letter ${firstLetter}!`,
+        `What letter does the word ${word} start with?`,
+        '🔤'
+      );
+    }
+  } else if (diff === 'medium') {
+    // ELEMENTARY
+    const mode = Math.random();
+
+    if (mode < 0.35) {
+      // 1. Word Opposites
+      const item = pickRandom(OPPOSITES_POOL);
+      const askA = Math.random() < 0.5;
+      const target = askA ? item.a : item.b;
+      const answer = askA ? item.b : item.a;
+
+      const otherAnswers = OPPOSITES_POOL.filter((o) => o.a !== item.a && o.b !== item.b)
+        .map((o) => (Math.random() < 0.5 ? o.a : o.b));
+      const distractors = shuffle(otherAnswers).slice(0, 3);
+
+      return makeChallenge(
+        'reading',
+        'Opposites',
+        `What is the opposite of ${target}?`,
+        answer,
+        distractors,
+        `Think about the opposite meaning! ${item.emoji}`,
+        `You got it! The opposite of ${target} is ${answer}!`,
+        `What is the opposite of ${target}?`,
+        item.emoji
+      );
+    } else if (mode < 0.65) {
+      // 2. Compound Words
+      const cw = pickRandom(COMPOUND_WORDS);
+      const question = `${cw.part1} + ${cw.part2} = ?`;
+      const subtext = `Put the two words together! ${cw.emoji}`;
+
+      const otherCompounds = COMPOUND_WORDS.filter((c) => c.whole !== cw.whole).map((c) => c.whole);
+      const distractors = shuffle(otherCompounds).slice(0, 3);
+
+      return makeChallenge(
+        'reading',
+        'Compound Words',
+        question,
+        cw.whole,
+        distractors,
+        subtext,
+        `Brilliant! ${cw.part1} and ${cw.part2} make ${cw.whole}!`,
+        `What word do you get when you combine ${cw.part1} and ${cw.part2}?`,
+        cw.emoji
+      );
+    } else {
+      // 3. Spelling Champions
+      const SPELLINGS = [
+        { correct: 'FRIEND', wrong: ['FREIND', 'FREND', 'FRIND'], hint: 'I before E!' },
+        { correct: 'BECAUSE', wrong: ['BECAUS', 'BECOZ', 'BICAUSE'], hint: 'Starts with BE-' },
+        { correct: 'BEAUTIFUL', wrong: ['BEAUTIFULL', 'BEUTIFUL', 'BEAUTYFUL'], hint: 'Full of beauty' },
+        { correct: 'PEOPLE', wrong: ['POEPLE', 'PEOPEL', 'PEPLE'], hint: 'Starts with P-E-O' },
+        { correct: 'SCHOOL', wrong: ['SKOOL', 'SHCOOL', 'SCOOL'], hint: 'Silent H in school' },
+        { correct: 'TOGETHER', wrong: ['TOGATHER', 'TOOGETHER', 'TOGETHOR'], hint: 'To-get-her' },
+        { correct: 'CASTLE', wrong: ['CASEL', 'CASSEL', 'KASTLE'], hint: 'Has a silent T' },
+        { correct: 'KNIGHT', wrong: ['NIGHT', 'NITE', 'KNYGHT'], hint: 'The chess piece with silent K!' },
+      ];
+      const s = pickRandom(SPELLINGS);
+      return makeChallenge(
+        'reading',
+        'Spelling Champion',
+        `Which word is spelled correctly?`,
+        s.correct,
+        s.wrong,
+        s.hint,
+        `Masterful spelling! "${s.correct}" is the correct spelling!`,
+        `Which word is spelled correctly?`,
+        '✍️'
+      );
+    }
+  } else {
+    // JUNIOR MASTER
+    const ADVANCED_READING = [
+      {
+        subject: 'Synonyms',
+        question: 'Which word means COURAGEOUS?',
+        correct: 'Brave',
+        distractors: ['Tired', 'Quiet', 'Cautious'],
+        hint: 'Facing danger with a strong heart 🦁',
+        explanation: 'Courageous and Brave both mean having courage!',
+      },
+      {
+        subject: 'Synonyms',
+        question: 'Which word means ANCIENT?',
+        correct: 'Very Old',
+        distractors: ['Shiny', 'Brand New', 'Tiny'],
+        hint: 'Like Egyptian pyramids or dinosaurs 🏛️',
+        explanation: 'Ancient describes things that are very old!',
+      },
+      {
+        subject: 'Prefixes',
+        question: 'What does "UN-" mean in "UNHAPPY"?',
+        correct: 'Not',
+        distractors: ['Very', 'Before', 'Always'],
+        hint: 'It flips the word to its opposite!',
+        explanation: 'The prefix "un-" means "not"!',
+      },
+      {
+        subject: 'Prefixes',
+        question: 'What does "RE-" mean in "REMATCH"?',
+        correct: 'Again',
+        distractors: ['Never', 'Under', 'Fast'],
+        hint: 'Like playing a game one more time 🔁',
+        explanation: 'The prefix "re-" means doing something again!',
+      },
+      {
+        subject: 'Vocabulary',
+        question: 'What is a "TACTIC" in chess?',
+        correct: 'A smart sequence of moves to gain an advantage',
+        distractors: ['Throwing pieces off the board', 'Moving as fast as possible', 'The color of the squares'],
+        hint: 'Using your brain to outwit the opponent ♟️',
+        explanation: 'A tactic is a clever sequence of moves that wins material or checkmates!',
+      },
+    ];
+
+    const item = pickRandom(ADVANCED_READING);
+    return makeChallenge(
+      'reading',
+      item.subject,
+      item.question,
+      item.correct,
+      item.distractors,
+      item.hint,
+      item.explanation,
+      item.question,
+      '🎓'
+    );
+  }
 }
 
-// ------------------- CHESS ACADEMY CHALLENGES -------------------
-const CHESS_CHALLENGE_POOL: StaticQuestion[] = [
+// ============================================================================
+// DYNAMIC CHESS ACADEMY GENERATOR (25+ Questions)
+// ============================================================================
+const CHESS_QUESTIONS = [
   {
     subject: 'Piece Movement',
     question: 'Which piece jumps in an "L" shape?',
-    subtext: 'Two squares forward, one square side!',
-    visualEmoji: '♞',
     correct: 'Knight',
     distractors: ['Bishop', 'Rook', 'Pawn'],
-    explanation: 'Neigh! The Knight is the only piece that can jump over others in an L-shape!',
+    subtext: 'Two squares forward, one square sideways! 🐴',
+    explanation: 'Neigh! The Knight is the only piece that jumps over others in an L-shape!',
     speechText: 'Which chess piece jumps in an L shape?',
+    emoji: '♞',
   },
   {
     subject: 'Piece Values',
     question: 'How many points is the Queen worth?',
-    subtext: 'She is the most powerful attacker on the board!',
-    visualEmoji: '♛',
     correct: '9 points',
     distractors: ['3 points', '5 points', '1 point'],
+    subtext: 'She is the most powerful attacker on the board! 👑',
     explanation: 'Correct! The Queen is worth 9 points because of her immense power!',
     speechText: 'How many points is the Queen worth in chess?',
+    emoji: '♛',
   },
   {
     subject: 'Piece Movement',
     question: 'How does the Bishop move?',
-    subtext: 'It glides across squares of the same color!',
-    visualEmoji: '♝',
-    correct: 'Diagonally (slanted lines)',
-    distractors: ['Straight forward and sideways', 'In an L-shape', 'Only one step forward'],
-    explanation: 'Great job! Bishops always move along diagonals!',
+    correct: 'Diagonally along slanted lines',
+    distractors: ['Straight forward and sideways', 'In an L-shape', 'Only one step at a time'],
+    subtext: 'Bishops always stay on their own square color! ♝',
+    explanation: 'Great job! Bishops glide diagonally as far as they want!',
     speechText: 'How does the Bishop move on the chessboard?',
+    emoji: '♝',
   },
   {
     subject: 'Rules & Defense',
-    question: 'What is it called when the King is attacked?',
-    subtext: 'Warning! The king must escape or be defended!',
-    visualEmoji: '⚠️',
+    question: 'What is it called when your King is under attack?',
     correct: 'Check',
-    distractors: ['Stalemate', 'Castling', 'Capture'],
-    explanation: 'Exactly! When the King is under direct attack, that is called Check!',
+    distractors: ['Stalemate', 'Castling', 'Promotion'],
+    subtext: 'Warning! The King must get out of danger! ⚠️',
+    explanation: 'When the King is directly attacked, it is called Check!',
     speechText: 'What is it called when a King is attacked by an enemy piece?',
+    emoji: '⚠️',
   },
   {
     subject: 'Piece Values',
     question: 'Which piece is worth 5 points?',
-    subtext: 'Like a castle tower that rules open files!',
-    visualEmoji: '♜',
-    correct: 'Rook',
+    correct: 'Rook (Castle)',
     distractors: ['Knight', 'Pawn', 'King'],
+    subtext: 'Stands tall like a castle tower! ♜',
     explanation: 'Super! The Rook is worth 5 points!',
-    speechText: 'Which chess piece is worth 5 points? The Rook, Knight, Pawn, or King?',
+    speechText: 'Which chess piece is worth 5 points?',
+    emoji: '♜',
   },
   {
     subject: 'Special Moves',
-    question: 'What special move moves King and Rook together?',
-    subtext: 'Tucks the king to safety and brings the rook to battle!',
-    visualEmoji: '🏰',
+    question: 'What move allows King and Rook to move together?',
     correct: 'Castling',
     distractors: ['Promotion', 'En Passant', 'Checkmate'],
-    explanation: 'Castle master! Castling is the only move where two pieces move at once!',
+    subtext: 'Tucks the King into safety and activates the Rook! 🏰',
+    explanation: 'Castle master! Castling moves both King and Rook at once!',
     speechText: 'What special move allows the King and Rook to move together?',
+    emoji: '🏰',
+  },
+  {
+    subject: 'Pawn Powers',
+    question: 'What happens when a Pawn reaches the other side?',
+    correct: 'Promotes to a Queen or other piece',
+    distractors: ['It gets removed from board', 'The game ends immediately', 'It turns into two pawns'],
+    subtext: 'Pawn Promotion magic! ✨',
+    explanation: 'Hooray! A pawn that reaches rank 8 can promote into a powerful Queen!',
+    speechText: 'What happens when a pawn reaches the very other side of the board?',
+    emoji: '♟️',
+  },
+  {
+    subject: 'Endgame Rules',
+    question: 'What is a "STALEMATE"?',
+    correct: 'A draw (no legal moves and not in check)',
+    distractors: ['An automatic victory for White', 'A double checkmate', 'A penalty move'],
+    subtext: 'Neither player wins — it is a friendly tie! 🤝',
+    explanation: 'Stalemate is a draw where the player has no legal moves and their King is not in check!',
+    speechText: 'What is a Stalemate in chess?',
+    emoji: '🤝',
+  },
+  {
+    subject: 'Board Setup',
+    question: 'Which color square is in the bottom-right corner?',
+    correct: 'Light (White) square',
+    distractors: ['Dark square', 'Red square', 'Any square'],
+    subtext: 'Remember the rule: "White on the right!" ⬜',
+    explanation: 'Spot on! The bottom-right corner must always be a light square ("white on the right")!',
+    speechText: 'Which color square is always in the bottom right corner of the chessboard?',
+    emoji: '🏁',
+  },
+  {
+    subject: 'Pawn Movement',
+    question: 'Can a Pawn move backwards?',
+    correct: 'No, Pawns only march forward',
+    distractors: ['Yes, whenever you want', 'Only on Tuesdays', 'Only when capturing'],
+    subtext: 'Pawns are brave soldiers who only move ahead! 🛡️',
+    explanation: 'Pawns never move backwards — they march forward toward promotion!',
+    speechText: 'Can a pawn move backwards in chess?',
+    emoji: '♟️',
   },
 ];
 
 function generateChessChallenge(_diff: LearningDifficulty): LearningChallenge {
-  const picked = CHESS_CHALLENGE_POOL[randInt(0, CHESS_CHALLENGE_POOL.length - 1)];
-  const allOpts = shuffle([picked.correct, ...picked.distractors]);
-  const correctIndex = allOpts.indexOf(picked.correct);
-
-  return {
-    id: 'chess-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-    category: 'chess',
-    subject: picked.subject,
-    question: picked.question,
-    subtext: picked.subtext,
-    visualEmoji: picked.visualEmoji,
-    options: allOpts,
-    correctIndex,
-    explanation: picked.explanation,
-    speechText: picked.speechText,
-  };
+  const picked = pickRandom(CHESS_QUESTIONS);
+  return makeChallenge(
+    'chess',
+    picked.subject,
+    picked.question,
+    picked.correct,
+    picked.distractors,
+    picked.subtext,
+    picked.explanation,
+    picked.speechText,
+    picked.emoji
+  );
 }

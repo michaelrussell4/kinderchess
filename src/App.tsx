@@ -9,6 +9,7 @@ import {
   PieceType,
   LearningChallenge,
   MoveRecord,
+  VoiceMode,
 } from './types/chess';
 import { BOTS, chooseBotMove, getBotPhrase } from './services/botEngine';
 import { generateChallenge } from './services/learning';
@@ -36,6 +37,7 @@ import {
   Bot as BotIcon,
   Award,
   ChevronLeft,
+  Music,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -71,8 +73,9 @@ export const App: React.FC = () => {
   const [settings, setSettings] = useState<GameSettings>({
     boardTheme: 'candy',
     pieceStyle: 'cartoon',
+    showPieceBadges: true, // Enabled by default for crystal clear piece recognition!
     soundEnabled: true,
-    voiceEnabled: true,
+    voiceMode: 'natural', // 'natural' | 'chimes' | 'off'
     showHints: true,
     showLegalMoves: true,
     learningCategory: 'mixed',
@@ -121,8 +124,8 @@ export const App: React.FC = () => {
   // Initialize sounds config
   useEffect(() => {
     sounds.setSoundEnabled(settings.soundEnabled);
-    sounds.setVoiceEnabled(settings.voiceEnabled);
-  }, [settings.soundEnabled, settings.voiceEnabled]);
+    sounds.setVoiceMode(settings.voiceMode);
+  }, [settings.soundEnabled, settings.voiceMode]);
 
   // Set initial bot speech when selecting bot
   useEffect(() => {
@@ -152,13 +155,13 @@ export const App: React.FC = () => {
         if (gameMode === 'bot') {
           const phrase = getBotPhrase(activeBot, 'lose');
           setBotSpeech(phrase);
-          sounds.speak(phrase, activeBot.pitch, activeBot.rate);
+          sounds.botSpeak(activeBot.id, phrase);
         }
       } else {
         if (gameMode === 'bot') {
           const phrase = getBotPhrase(activeBot, 'win');
           setBotSpeech(phrase);
-          sounds.speak(phrase, activeBot.pitch, activeBot.rate);
+          sounds.botSpeak(activeBot.id, phrase);
         }
       }
       return true;
@@ -221,7 +224,7 @@ export const App: React.FC = () => {
           if (gameMode === 'bot' && moveRes.color === 'w') {
             const checkPhrase = getBotPhrase(activeBot, 'checked');
             setBotSpeech(checkPhrase);
-            sounds.speak(checkPhrase, activeBot.pitch, activeBot.rate);
+            sounds.botSpeak(activeBot.id, checkPhrase);
           }
         }
 
@@ -248,14 +251,14 @@ export const App: React.FC = () => {
       if (bestMove) {
         executeMove(bestMove.from, bestMove.to, bestMove.promotion || 'q');
 
-        // Bot voice reaction
+        // Bot reaction
         let context: 'move' | 'capture' | 'checked' = 'move';
         if (bestMove.captured) context = 'capture';
         if (chess.isCheck()) context = 'checked';
 
         const reaction = getBotPhrase(activeBot, context);
         setBotSpeech(reaction);
-        sounds.speak(reaction, activeBot.pitch, activeBot.rate);
+        sounds.botSpeak(activeBot.id, reaction);
       }
       setIsBotThinking(false);
     }, 700);
@@ -362,7 +365,6 @@ export const App: React.FC = () => {
     sounds.playTap();
 
     if (gameMode === 'bot') {
-      // In bot mode, undo bot move AND player move to return to player turn
       if (chess.history().length >= 2) {
         chess.undo();
         chess.undo();
@@ -374,7 +376,6 @@ export const App: React.FC = () => {
         chess.undo();
       }
     } else {
-      // In 2-player mode, undo single move
       chess.undo();
     }
 
@@ -393,7 +394,6 @@ export const App: React.FC = () => {
     const moves = chess.moves({ verbose: true });
     if (moves.length === 0) return;
 
-    // Pick a capture or pawn/knight move as a helpful hint
     const captures = moves.filter((m) => m.captured);
     const chosen = captures.length > 0 ? captures[0] : moves[Math.floor(Math.random() * moves.length)];
 
@@ -403,8 +403,25 @@ export const App: React.FC = () => {
     if (gameMode === 'bot') {
       const phrase = `💡 Hint from ${activeBot.name}: Try moving your piece on ${chosen.from}!`;
       setBotSpeech(phrase);
-      sounds.speak(phrase, activeBot.pitch, activeBot.rate);
+      sounds.botSpeak(activeBot.id, phrase);
     }
+  };
+
+  // Cycle Voice Mode: Natural Voice -> Musical Chimes -> Mute
+  const handleCycleVoiceMode = () => {
+    sounds.playTap();
+    const modes: VoiceMode[] = ['natural', 'chimes', 'off'];
+    const currIdx = modes.indexOf(settings.voiceMode);
+    const nextMode = modes[(currIdx + 1) % modes.length];
+
+    sounds.setVoiceMode(nextMode);
+    if (nextMode === 'chimes') {
+      sounds.playBotChime('gizmo');
+    } else if (nextMode === 'natural') {
+      sounds.speak('Natural voice active!');
+    }
+
+    setSettings({ ...settings, voiceMode: nextMode });
   };
 
   // Start New Match
@@ -427,7 +444,7 @@ export const App: React.FC = () => {
       const b = BOTS[botId];
       const startPhrase = getBotPhrase(b, 'start');
       setBotSpeech(startPhrase);
-      sounds.speak(startPhrase, b.pitch, b.rate);
+      sounds.botSpeak(b.id, startPhrase);
     }
 
     setFenTick((t) => t + 1);
@@ -472,6 +489,33 @@ export const App: React.FC = () => {
               <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-900" />
               <span>{player1.stars} Stars</span>
             </div>
+
+            {/* Quick Voice Mode Switcher (Natural -> Chimes -> Off) */}
+            <button
+              type="button"
+              onClick={handleCycleVoiceMode}
+              className="p-2 sm:px-3 sm:py-1.5 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bubble text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm"
+              title="Change Voice Mode: Natural Voice / Chimes Only / Off"
+            >
+              {settings.voiceMode === 'natural' && (
+                <>
+                  <Volume2 className="w-4 h-4 text-emerald-400" />
+                  <span className="hidden sm:inline">Voice: Natural</span>
+                </>
+              )}
+              {settings.voiceMode === 'chimes' && (
+                <>
+                  <Music className="w-4 h-4 text-cyan-300" />
+                  <span className="hidden sm:inline">Voice: Chimes</span>
+                </>
+              )}
+              {settings.voiceMode === 'off' && (
+                <>
+                  <VolumeX className="w-4 h-4 text-rose-400" />
+                  <span className="hidden sm:inline">Voice: Off</span>
+                </>
+              )}
+            </button>
 
             {/* Rules Button */}
             <button
@@ -597,7 +641,7 @@ export const App: React.FC = () => {
                     onClick={() => {
                       sounds.playTap();
                       setSelectedBotId(bot.id);
-                      sounds.speak(bot.catchphrases.start[0], bot.pitch, bot.rate);
+                      sounds.botSpeak(bot.id, bot.catchphrases.start[0]);
                     }}
                     className={`p-4 rounded-3xl text-left transition-all border-3 flex items-start gap-3.5 transform hover:scale-102 active:scale-95 ${
                       isSelected
@@ -681,6 +725,7 @@ export const App: React.FC = () => {
                 chess={chess}
                 theme={activeTheme}
                 pieceStyle={settings.pieceStyle}
+                showPieceBadges={settings.showPieceBadges}
                 selectedSquare={selectedSquare}
                 validMoves={validMoves}
                 lastMove={lastMove}
@@ -744,7 +789,7 @@ export const App: React.FC = () => {
                   ) : (
                     <VolumeX className="w-4 h-4 text-rose-500" />
                   )}
-                  <span>{settings.soundEnabled ? 'Sound' : 'Mute'}</span>
+                  <span>{settings.soundEnabled ? 'FX On' : 'FX Off'}</span>
                 </button>
               </div>
 
